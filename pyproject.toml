@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nd-l2-benchmark"
+version = "0.5.0"
+description = "Controlled pilot benchmark for multidimensional L2 feedback state models"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "matplotlib>=3.7"]
+
+[project.optional-dependencies]
+jit = ["numba>=0.67"]
+openai = ["openai>=1.0"]
+
+[project.scripts]
+nd-l2-benchmark = "nd_l2_benchmark.run:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

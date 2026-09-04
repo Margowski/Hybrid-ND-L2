@@ -1,0 +1,42 @@
+name: Hybrid ND-L2 turn
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: User message to process
+        required: true
+        type: string
+      model:
+        description: OpenAI model available to this project
+        required: false
+        default: gpt-5-mini
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  process-turn:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_MODEL: ${{ inputs.model }}
+      USER_MESSAGE: ${{ inputs.message }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install hybrid runtime
+        run: pip install -e '.[jit,openai]'
+      - name: Process one hybrid turn
+        run: >-
+          python -m nd_l2_benchmark.hybrid
+          --message "$USER_MESSAGE"
+          --state-file .hybrid/state.json
+      - name: Preserve updated shadow state
+        uses: actions/upload-artifact@v4
+        with:
+          name: hybrid-state
+          path: .hybrid/state.json

@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: nd-l2-benchmark
+Version: 0.5.0
+Summary: Controlled pilot benchmark for multidimensional L2 feedback state models
+Requires-Python: >=3.10
+Requires-Dist: numpy>=1.24
+Requires-Dist: matplotlib>=3.7
+Provides-Extra: jit
+Requires-Dist: numba>=0.67; extra == "jit"
+Provides-Extra: openai
+Requires-Dist: openai>=1.0; extra == "openai"
+Provides-Extra: state
+Requires-Dist: cryptography>=43.0; extra == "state"

@@ -2,6 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from cryptography.fernet import Fernet
+
 from nd_l2_benchmark.hybrid import (
     HybridState,
     HybridStateEngine,
@@ -44,6 +46,19 @@ class HybridTests(unittest.TestCase):
             restored = HybridState.load(path)
         self.assertEqual(restored.version, 2)
         self.assertEqual(restored.facts["Ort"]["value"], "Berlin")
+
+    def test_encrypted_state_round_trip_and_audit_timestamps(self):
+        engine = HybridStateEngine()
+        decision = engine.propose(HybridState(), SemanticEvent("assertion", "Projekt", "Hybrid-ND-L2", "", 0.9, "Test"))
+        self.assertTrue(decision.accepted)
+        self.assertIn("created_at", decision.next_state.history[0])
+        self.assertIn("updated_at", decision.next_state.facts["Projekt"])
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state.enc"
+            key = Fernet.generate_key().decode("utf-8")
+            decision.next_state.save_encrypted(path, key)
+            restored = HybridState.load_encrypted(path, key)
+        self.assertEqual(restored.facts["Projekt"]["status"], "active")
 
 
 if __name__ == "__main__":

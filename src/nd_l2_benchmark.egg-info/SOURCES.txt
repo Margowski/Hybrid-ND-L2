@@ -1,0 +1,17 @@
+README.md
+pyproject.toml
+src/nd_l2_benchmark/__init__.py
+src/nd_l2_benchmark/data.py
+src/nd_l2_benchmark/hybrid.py
+src/nd_l2_benchmark/jit_backend.py
+src/nd_l2_benchmark/metrics.py
+src/nd_l2_benchmark/models.py
+src/nd_l2_benchmark/run.py
+src/nd_l2_benchmark.egg-info/PKG-INFO
+src/nd_l2_benchmark.egg-info/SOURCES.txt
+src/nd_l2_benchmark.egg-info/dependency_links.txt
+src/nd_l2_benchmark.egg-info/entry_points.txt
+src/nd_l2_benchmark.egg-info/requires.txt
+src/nd_l2_benchmark.egg-info/top_level.txt
+tests/test_benchmark.py
+tests/test_hybrid.py

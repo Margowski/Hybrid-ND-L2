@@ -11,9 +11,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from datetime import UTC, datetime
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
+
+from cryptography.fernet import Fernet, InvalidToken
 
 
 VALID_OPERATIONS = {"assertion", "correction", "retraction", "none"}
@@ -84,6 +87,37 @@ class HybridState:
         temporary.write_text(json.dumps(asdict(self), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         temporary.replace(path)
 
+    @staticmethod
+    def now() -> tuple[str, int]:
+        moment = datetime.now(UTC)
+        return moment.isoformat(), int(moment.timestamp())
+
+    @classmethod
+    def load_encrypted(cls, path: Path, key: str) -> "HybridState":
+        if not path.exists():
+            return cls()
+        try:
+            payload = Fernet(key.encode("utf-8")).decrypt(path.read_bytes())
+        except (ValueError, InvalidToken) as exc:
+            raise ValueError("encrypted state cannot be decrypted") from exc
+        temporary = path.with_suffix(".decoded.json")
+        try:
+            temporary.write_bytes(payload)
+            return cls.load(temporary)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def save_encrypted(self, path: Path, key: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(asdict(self), ensure_ascii=False, indent=2).encode("utf-8")
+        try:
+            encrypted = Fernet(key.encode("utf-8")).encrypt(payload)
+        except ValueError as exc:
+            raise ValueError("STATE_ENCRYPTION_KEY is not a valid Fernet key") from exc
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        temporary.write_bytes(encrypted)
+        temporary.replace(path)
+
 
 @dataclass(frozen=True)
 class StateDecision:
@@ -117,6 +151,8 @@ class HybridStateEngine:
             "event": asdict(event), "gate": gate, "accepted": accepted,
             "previous": existing,
         }
+        created_at, created_timestamp = HybridState.now()
+        record.update({"created_at": created_at, "created_timestamp": created_timestamp})
         next_state.history.append(record)
         if not accepted:
             return StateDecision(False, gate, "gate below commit threshold", next_state)
@@ -132,6 +168,11 @@ class HybridStateEngine:
                 "confidence": event.confidence,
                 "operation": event.operation,
                 "rationale": event.rationale,
+                "status": "active",
+                "created_at": existing.get("created_at", created_at) if existing else created_at,
+                "created_timestamp": existing.get("created_timestamp", created_timestamp) if existing else created_timestamp,
+                "updated_at": created_at,
+                "update_timestamp": created_timestamp,
             }
         next_state.version += 1
         return StateDecision(True, gate, "committed virtual update", next_state)
@@ -205,6 +246,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--message", required=True)
     parser.add_argument("--state-file", type=Path, default=Path(".hybrid/state.json"))
+    parser.add_argument("--encrypted-state-file", type=Path)
     parser.add_argument("--model", default=os.getenv("OPENAI_MODEL", "gpt-5-mini"))
     return parser
 
@@ -213,9 +255,15 @@ def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     if not os.getenv("OPENAI_API_KEY"):
         raise RuntimeError("OPENAI_API_KEY must be configured by the runtime")
-    state = HybridState.load(args.state_file)
+    state_key = os.getenv("STATE_ENCRYPTION_KEY", "")
+    if args.encrypted_state_file and not state_key:
+        raise RuntimeError("STATE_ENCRYPTION_KEY must be configured for encrypted persistence")
+    state = (HybridState.load_encrypted(args.encrypted_state_file, state_key)
+             if args.encrypted_state_file else HybridState.load(args.state_file))
     result, decision = process_turn(args.message, state, OpenAIEventAnswerProvider(args.model))
     decision.next_state.save(args.state_file)
+    if args.encrypted_state_file:
+        decision.next_state.save_encrypted(args.encrypted_state_file, state_key)
     print(json.dumps({
         "answer": result.answer,
         "event": asdict(result.event),

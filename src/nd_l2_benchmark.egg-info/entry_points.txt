@@ -1,0 +1,2 @@
+[console_scripts]
+nd-l2-benchmark = nd_l2_benchmark.run:main

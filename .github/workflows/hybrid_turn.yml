@@ -44,8 +44,8 @@ jobs:
           git add .hybrid/state.enc
           git diff --cached --quiet || git commit -m "chore: update encrypted hybrid state"
           git push
-      - name: Preserve updated shadow state
+      - name: Preserve encrypted state artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hybrid-state
-          path: .hybrid/state.json
+          name: hybrid-state-encrypted
+          path: .hybrid/state.enc

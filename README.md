@@ -148,20 +148,12 @@ after validation. A GitHub Actions workflow is included at
 GitHub Actions secret and uploads the updated `.hybrid/state.json` as an
 artifact; it never commits or prints a secret.
 
-This is an integration prototype. The semantic event currently comes from the
-large LLM in the same call as the answer, avoiding a second latency-heavy call.
-The next benchmark replaces it with a trained lightweight semantic encoder and
-tests hidden semantic context changes.
-
-## Hybrid LLM integration
-
-`nd_l2_benchmark.hybrid` implements the first secure integration boundary:
-one large LLM call returns both a user answer and a semantic event; the local
-state engine accepts or rejects the resulting virtual update and commits only
-after validation. A GitHub Actions workflow is included at
-`.github/workflows/hybrid_turn.yml`. It reads `OPENAI_API_KEY` only from the
-GitHub Actions secret and uploads the updated `.hybrid/state.json` as an
-artifact; it never commits or prints a secret.
+The durable state is encrypted before it is committed to the repository. The
+fact `System verwendet verschlüsselten Langzeit-Zustand` is protected: its
+value is reconstructed from the verified runtime configuration before each
+turn. A user or LLM event may not overwrite, retract, or correct it. This
+keeps ordinary project memories editable while preventing a conversation from
+changing a security-relevant system property.
 
 This is an integration prototype. The semantic event currently comes from the
 large LLM in the same call as the answer, avoiding a second latency-heavy call.

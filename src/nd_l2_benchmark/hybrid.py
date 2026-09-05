@@ -20,6 +20,9 @@ from cryptography.fernet import Fernet, InvalidToken
 
 
 VALID_OPERATIONS = {"assertion", "correction", "retraction", "none"}
+ENCRYPTION_STATE_SUBJECT = "System verwendet verschlüsselten Langzeit-Zustand"
+ENCRYPTION_ENABLED_VALUE = "Das System verwendet einen verschlüsselten Langzeit-Zustand."
+ENCRYPTION_DISABLED_VALUE = "Das System verwendet keinen verschlüsselten Langzeit-Zustand."
 
 
 @dataclass(frozen=True)
@@ -130,6 +133,61 @@ class StateDecision:
 class HybridStateEngine:
     """Validate a semantic proposal before the active state may change."""
 
+    def __init__(self, protected_facts: dict[str, dict[str, str]] | None = None) -> None:
+        self.protected_facts = protected_facts or {}
+
+    @classmethod
+    def for_runtime(cls, *, encrypted_persistence: bool) -> "HybridStateEngine":
+        """Build the policy from runtime configuration, never from chat input."""
+        value = ENCRYPTION_ENABLED_VALUE if encrypted_persistence else ENCRYPTION_DISABLED_VALUE
+        return cls({
+            ENCRYPTION_STATE_SUBJECT: {
+                "value": value,
+                "rationale": "Aus der verifizierten Laufzeitkonfiguration abgeleitet.",
+            }
+        })
+
+    def reconcile_protected_facts(self, state: HybridState) -> HybridState:
+        """Repair protected facts from their trusted source before an LLM sees state."""
+        if not self.protected_facts:
+            return state
+        next_state = HybridState(
+            version=state.version,
+            facts={key: dict(value) for key, value in state.facts.items()},
+            history=list(state.history),
+        )
+        changed = False
+        for subject, protected in self.protected_facts.items():
+            existing = next_state.facts.get(subject)
+            if existing and existing.get("value") == protected["value"]:
+                continue
+            created_at, created_timestamp = HybridState.now()
+            next_state.facts[subject] = {
+                "value": protected["value"],
+                "confidence": 1.0,
+                "operation": "system",
+                "rationale": protected["rationale"],
+                "status": "active",
+                "trust": "runtime_configuration",
+                "created_at": existing.get("created_at", created_at) if existing else created_at,
+                "created_timestamp": existing.get("created_timestamp", created_timestamp) if existing else created_timestamp,
+                "updated_at": created_at,
+                "update_timestamp": created_timestamp,
+            }
+            next_state.history.append({
+                "event": {"operation": "system_reconciliation", "subject": subject, "value": protected["value"]},
+                "gate": 1.0,
+                "accepted": True,
+                "previous": existing,
+                "reason": "protected fact synchronized from runtime configuration",
+                "created_at": created_at,
+                "created_timestamp": created_timestamp,
+            })
+            changed = True
+        if changed:
+            next_state.version += 1
+        return next_state
+
     def propose(self, state: HybridState, event: SemanticEvent) -> StateDecision:
         next_state = HybridState(
             version=state.version,
@@ -140,6 +198,24 @@ class HybridStateEngine:
             return StateDecision(False, 0.0, "no state-changing semantic event", next_state)
 
         existing = next_state.facts.get(event.subject)
+        protected = self.protected_facts.get(event.subject)
+        if protected:
+            created_at, created_timestamp = HybridState.now()
+            next_state.history.append({
+                "event": asdict(event),
+                "gate": 0.0,
+                "accepted": False,
+                "previous": existing,
+                "reason": "protected fact may only be changed by runtime configuration",
+                "created_at": created_at,
+                "created_timestamp": created_timestamp,
+            })
+            return StateDecision(
+                False,
+                0.0,
+                "protected fact may only be changed by runtime configuration",
+                next_state,
+            )
         conflict = bool(existing and existing.get("value") != event.value)
         gate = event.confidence
         if event.operation == "assertion" and conflict:
@@ -260,7 +336,9 @@ def main(argv: list[str] | None = None) -> None:
         raise RuntimeError("STATE_ENCRYPTION_KEY must be configured for encrypted persistence")
     state = (HybridState.load_encrypted(args.encrypted_state_file, state_key)
              if args.encrypted_state_file else HybridState.load(args.state_file))
-    result, decision = process_turn(args.message, state, OpenAIEventAnswerProvider(args.model))
+    engine = HybridStateEngine.for_runtime(encrypted_persistence=bool(args.encrypted_state_file))
+    state = engine.reconcile_protected_facts(state)
+    result, decision = process_turn(args.message, state, OpenAIEventAnswerProvider(args.model), engine)
     decision.next_state.save(args.state_file)
     if args.encrypted_state_file:
         decision.next_state.save_encrypted(args.encrypted_state_file, state_key)

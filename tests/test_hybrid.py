@@ -5,6 +5,8 @@ from pathlib import Path
 from cryptography.fernet import Fernet
 
 from nd_l2_benchmark.hybrid import (
+    ENCRYPTION_ENABLED_VALUE,
+    ENCRYPTION_STATE_SUBJECT,
     HybridState,
     HybridStateEngine,
     ScriptedProvider,
@@ -59,6 +61,47 @@ class HybridTests(unittest.TestCase):
             decision.next_state.save_encrypted(path, key)
             restored = HybridState.load_encrypted(path, key)
         self.assertEqual(restored.facts["Projekt"]["status"], "active")
+
+    def test_runtime_reconciles_encryption_fact_before_a_turn(self):
+        state = HybridState(
+            version=2,
+            facts={
+                ENCRYPTION_STATE_SUBJECT: {
+                    "value": "Das System verwendet keine Verschlüsselung für seinen Langzeit-Zustand.",
+                    "created_at": "2026-01-01T00:00:00+00:00",
+                    "created_timestamp": 0,
+                }
+            },
+        )
+        reconciled = HybridStateEngine.for_runtime(encrypted_persistence=True).reconcile_protected_facts(state)
+        fact = reconciled.facts[ENCRYPTION_STATE_SUBJECT]
+        self.assertEqual(reconciled.version, 3)
+        self.assertEqual(fact["value"], ENCRYPTION_ENABLED_VALUE)
+        self.assertEqual(fact["trust"], "runtime_configuration")
+        self.assertEqual(reconciled.history[-1]["event"]["operation"], "system_reconciliation")
+
+    def test_user_cannot_overwrite_protected_encryption_fact(self):
+        engine = HybridStateEngine.for_runtime(encrypted_persistence=True)
+        state = engine.reconcile_protected_facts(HybridState())
+        decision = engine.propose(
+            state,
+            SemanticEvent(
+                "correction",
+                ENCRYPTION_STATE_SUBJECT,
+                "Das System verwendet keine Verschlüsselung für seinen Langzeit-Zustand.",
+                ENCRYPTION_ENABLED_VALUE,
+                1.0,
+                "Gegenversuch",
+            ),
+        )
+        self.assertFalse(decision.accepted)
+        self.assertEqual(decision.gate, 0.0)
+        self.assertEqual(decision.next_state.version, state.version)
+        self.assertEqual(decision.next_state.facts[ENCRYPTION_STATE_SUBJECT]["value"], ENCRYPTION_ENABLED_VALUE)
+        self.assertEqual(
+            decision.reason,
+            "protected fact may only be changed by runtime configuration",
+        )
 
 
 if __name__ == "__main__":

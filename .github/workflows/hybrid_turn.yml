@@ -14,13 +14,14 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   process-turn:
     runs-on: ubuntu-latest
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
       OPENAI_MODEL: ${{ inputs.model }}
       USER_MESSAGE: ${{ inputs.message }}
     steps:
@@ -29,12 +30,20 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install hybrid runtime
-        run: pip install -e '.[jit,openai]'
+        run: pip install -e '.[jit,openai,state]'
       - name: Process one hybrid turn
         run: >-
           python -m nd_l2_benchmark.hybrid
           --message "$USER_MESSAGE"
           --state-file .hybrid/state.json
+          --encrypted-state-file .hybrid/state.enc
+      - name: Persist encrypted accepted state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .hybrid/state.enc
+          git diff --cached --quiet || git commit -m "chore: update encrypted hybrid state"
+          git push
       - name: Preserve updated shadow state
         uses: actions/upload-artifact@v4
         with:
